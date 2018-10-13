@@ -9,12 +9,12 @@
 #include <sys/stat.h> 
 #include <sys/types.h> 
 #include <sys/ipc.h> 
+#define BUFF_SZ	sizeof ( int )
+#define KEY 8419047
 
 void master(pid_t);
 void deleteMemory();
-void updateClock();  
-#define KEY 849047 /* key for child and parent processes.*/
-#define BUFF_SZ	sizeof ( int )
+void updateClock();
 
 struct message{ 
 char msg[550]; 
@@ -27,7 +27,9 @@ int userPid;
 int *clock; 
 int shmid; 
 char *filename;   
-struct message* shmMsg; 
+struct message* shmMsg;
+int processIds[100];  
+int processNum = 0; 
 void printlog(char *, struct message shmMsg, int *); 
 
 int main(int argc, char *argv[]){ 
@@ -94,11 +96,15 @@ switch ( childPid = fork() ){
     }
 i++; 
 }
- 
+
+deleteMemory(); 
+
 return 0; 
 }
 
 void master(pid_t childPid) {
+     int returnStatus; //Wait for child process
+     waitpid(childPid,&returnStatus,0); 
      printf("Something done in the master\n"); 
      updateClock(); 
      
@@ -106,7 +112,7 @@ void master(pid_t childPid) {
 
 //int returnStatus;//Wait for child process
 //waitpid(childPid, &returnStatus,0);
-deleteMemory();  
+ 
 //printlog(&filename, msg1, &clock;) 
 }
 
@@ -116,24 +122,47 @@ void deleteMemory(){
    shmdt(shmMsg);
       if((shmctl(shmid,IPC_RMID,NULL))== -1)
        perror("Error deleting memory");
-}
 
+}
 void updateClock() { 
 
    //Add values to  the milliseconds 
-   clock[1] = 30; 
-   int mili = clock[1]; 
+    
+   int mili = clock[1] + 100; 
    int sec = clock[0]; 
    int overflow = 0; 
    int seconds = 0; 
-   seconds = mili/1000; //Figure out how many seconds there are 
-  if (seconds >= 1){ //if there is an overflow of milliseconds
+   //Check for overflow 
+   if (mili >= 1000) { 
+       seconds = mili / 1000; 
       clock[0] = sec + seconds;  //Add overflow of seconds + current seconds 
       overflow = mili % 1000;   //left over miliseconds 
-   }
+   } 
+  else{ 
+     clock[0] = sec + seconds; 
+     clock[1] = mili; 
+   }  
+     
    printf("Clock has been updated to %d:%d\n",clock[0],clock[1]); 
 
 } 
+
+void clean (int sig){ 
+    printf("Removing shared memory"); 
+    int i;
+    shmdt(clock);
+     shmdt(shmMsg);
+      if((shmctl(shmid,IPC_RMID,NULL))== -1)
+       perror("Error deleting memory");
+
+	for(i = 0; i < processNum; i++){
+		kill(processIds[i], SIGKILL);
+	}
+	exit(1);
+} 
+
+
+
    
    /* shmdt(secptr);
     perror("Failed to detatch");  
