@@ -14,23 +14,26 @@
 #include <math.h> 
 #define BUFF_SZ 2*sizeof ( int )
 
-int randomNumber();
-//void  deleteMemory();
   
 struct message{
-  char msg[550];
+  char *msg;
   int second;
   int millisecond;
   int userPid;
 };
+int randomNumber(); 
+void updateClock(int);
+int criticalSection(int *, int *, int, struct message user);
 
 
 int *timeclock;
+int *localClock; 
 struct message* shmMsg;
 int shmid; 
-
+int randomclock = 0;
+ 
 int main(int argc, char *argv[]){
-int randomclock = 0; 
+struct message user; 
 
 //Get values from parent 
 shmid = atoi(argv[0]); 
@@ -55,6 +58,23 @@ shmMsg = (struct message *)shmat(shmid,NULL,0);
 randomclock  = randomNumber(); 
 printf("Current time in child is %d:%d\n", timeclock[0],timeclock[1]); 
 printf("Random number is %d \n", randomclock); 
+
+//Create the local clock for termination deadline  
+ localClock[0] = timeclock[0]; 
+ localClock[1] = timeclock[1];  
+
+//Update the clock to random termination time 
+updateClock(randomclock); 
+
+//Critical section, keeps trying to put message in shared memory
+int i = 0;  
+while (i = 0){ 
+  criticalSection(timeclock,localClock,shmid,user); 
+}   
+//Terminate process
+exit(0); 
+
+
 //deleteMemory(); 
 return 0; 
 }
@@ -67,7 +87,48 @@ int randomNumber(){
     srand(time(0)); 
     num = (rand() % (max - min + 1)) + min; 
     return num; 
-} 
+}
+
+void updateClock(int random) {
+
+   int mili = localClock[1] + random;
+   int sec = localClock[0];
+   int overflow = 0;
+   int seconds = 0;
+
+   if (mili >= 1000) {
+       seconds = mili / 1000;
+      localClock[0] = sec + seconds;
+      overflow = mili % 1000;
+   }
+  else{
+     localClock[0] = sec + seconds;
+     localClock[1] = mili;
+   }
+
+   printf("Clock has been updated to %d:%d\n",localClock[0],localClock[1]);
+
+}
+
+//Critical section 
+int criticalSection(int *timeclock, int *localClock, int shmid, struct message user ) { 
+     //If time is up 
+     if (timeclock[0] >= localClock[0] && timeclock[1] >= localClock[1]){
+        //if shmsg is null 
+           //Update struct in shared memory 
+           user.msg = "Time is up, user is terminating and sending message"; 
+           user.second = timeclock[0]; 
+           user.millisecond = timeclock[1]; 
+	   user.userPid = shmid;
+           //cede process to other children  
+           return 1;  
+      }    
+       else{ 
+         //Cede process to other child  
+         return 0;   
+       } 
+}                
+ 
 
 /*void deleteMemory(){ 
     //Detach from memory 

@@ -103,6 +103,7 @@ return 0;
 }
 
 void master(pid_t childPid) {
+     sleep(2); 
      int returnStatus; //Wait for child process
      waitpid(childPid,&returnStatus,0); 
      printf("Something done in the master\n"); 
