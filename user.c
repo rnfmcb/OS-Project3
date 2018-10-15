@@ -11,7 +11,8 @@
 #include <sys/ipc.h>
 #include <time.h>
 #include <ctype.h> 
-#include <math.h> 
+#include <math.h>
+#include <semaphore.h> 
 #define BUFF_SZ 2*sizeof ( int )
 
   
@@ -24,7 +25,7 @@ struct message{
 int randomNumber(); 
 void updateClock(int);
 int criticalSection(int *, int *, int, struct message user);
-
+void deleteMemory(); 
 
 int *timeclock;
 int *localClock; 
@@ -72,10 +73,7 @@ while (i = 0){
   criticalSection(timeclock,localClock,shmid,user); 
 }   
 //Terminate process
-exit(0); 
-
-
-//deleteMemory(); 
+deleteMemory();  
 return 0; 
 }
 
@@ -130,13 +128,13 @@ int criticalSection(int *timeclock, int *localClock, int shmid, struct message u
 }                
  
 
-/*void deleteMemory(){ 
+void deleteMemory(){ 
     //Detach from memory 
     shmdt(timeclock);
     shmdt(shmMsg);
 
     /*delete  from shared memory*/
-/*	if((shmctl(shmid, IPC_RMID, NULL)) == -1){ 
+	if((shmctl(shmid, IPC_RMID, NULL)) == -1){ 
     		perror("Couldn't detach memory ");
   	}
-} */ 	
+}  	

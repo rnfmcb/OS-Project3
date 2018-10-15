@@ -8,36 +8,59 @@
 #include <sys/shm.h> 
 #include <sys/stat.h> 
 #include <sys/types.h> 
-#include <sys/ipc.h> 
-#define BUFF_SZ	sizeof ( int )
+#include <sys/ipc.h>
+#include <semaphore.h> 
+#include <sys/sem.h> 
+#include <wait.h> 
+#define BUFF_SZ	2048
 #define KEY 8419047
+#define SEM_ID 3000 //semaphore id 
 
-void master(pid_t);
 void deleteMemory();
-void updateClock();
 
 struct message{ 
-char msg[550]; 
-int second; 
-int millisecond; 
-int userPid; 
-};
+     char shmsg[550]; 
+     int seconds; 
+     int milisec; 
+     int userPid; 
+     int userSec; 
+     int userMili; 
+}; 
 
- 
-int *clock; 
+void updateClock(struct message *msg); 
+void printLog(char *, struct message *msg);  
+
+
+//int *clock; 
 int shmid; 
 char *filename;   
-struct message* shmMsg;
-int processIds[100];  
+char *shm_address; 
+//nt processIds[100];  
 int processNum = 0; 
-void printlog(char *, struct message shmMsg, int *); 
 
-int main(int argc, char *argv[]){ 
+
+int main(int argc, char *argv[]){
+ 
 int x = 5; 
 int z = 2; 
 int  c;    
-struct message msg1; 
+struct message msg;
+msg.seconds = 0; 
+msg.milisec = 0;
+msg.shmsg[0] = 0; 
+msg.userPid = 0;   
+ 
+//semaphore information 
+int semSetId; 
+union semun{ 
+    int value; 
+    struct semid_ds  *buf; 
+    ushort *array; 
+} sem_val;  
+struct shmid_ds  shm_desc; 
 
+
+//Get values from command line 
 while ((c = getopt (argc, argv, "hslt:")) != -1)
 switch (c) {
         case 'h':
@@ -62,15 +85,30 @@ switch (c) {
 //Allocate shared memory 
 shmid = shmget(KEY, BUFF_SZ, IPC_CREAT | 0777);
    if(shmid == -1){
-        perror("Error in shmget");
+        perror("Error in shmget in main");
         exit(1);
    }
 //Attach shared memory 
-     clock = (int *)shmat(shmid,NULL,0);
+   /*  clock = (int *)shmat(shmid,NULL,0);
      shmMsg = (struct message *)shmat(shmid,NULL,0);
 //Initialize the clock to 0 
      clock[0] = 0;
-     clock[1] = 0;
+     clock[1] = 0;*/
+shm_address = shmat(shmid, NULL, 0); 
+    if (shmid == -1) { 
+       perror("Error in shmat in main"); 
+       exit(1); 
+     } 
+
+
+//initialize and create structures for semaphore
+semSetId = semget(SEM_ID, 1, IPC_CREAT| 0600); 
+   if (semSetId == -1) 
+      perror("Semaphore semget"); 
+sem_val.value = 1; 
+int returnSystemCall = semctl(semSetId, 0, SETVAL,sem_val); 
+    if (returnSystemCall == -1) 
+      perror("Semaphore semctl error"); 
 
 //Fork the user processes 
 int i = 0; 
@@ -91,7 +129,12 @@ switch ( childPid = fork() ){
 	    break;
 
 	default:
-	    master(childPid); 
+	    sleep(2);
+            int returnStatus; //Wait for child process
+            waitpid(childPid,&returnStatus,0);
+            printf("Something done in the master\n");
+            updateClock(&msg);
+ 
 	    break;
     }
 i++; 
@@ -102,67 +145,75 @@ deleteMemory();
 return 0; 
 }
 
-void master(pid_t childPid) {
-     sleep(2); 
-     int returnStatus; //Wait for child process
-     waitpid(childPid,&returnStatus,0); 
-     printf("Something done in the master\n"); 
-     updateClock(); 
-     
-  
-
-//int returnStatus;//Wait for child process
-//waitpid(childPid, &returnStatus,0);
- 
-//printlog(&filename, msg1, &clock;) 
-}
-
-//Detach and remove the memory
 void deleteMemory(){
-   shmdt(clock);
-   shmdt(shmMsg);
-      if((shmctl(shmid,IPC_RMID,NULL))== -1)
+   if(shmdt(shm_address) == -1)  
+     perror("Problem with shmdt"); 
+   if((shmctl(shmid,IPC_RMID,NULL))== -1)
        perror("Error deleting memory");
 
 }
-void updateClock() { 
+void updateClock(struct message *msg) { 
 
    //Add values to  the milliseconds 
-    
-   int mili = clock[1] + 100; 
-   int sec = clock[0]; 
+   int mili = msg->milisec + 100; 
+   int sec = msg->seconds; 
    int overflow = 0; 
    int seconds = 0; 
    //Check for overflow 
    if (mili >= 1000) { 
        seconds = mili / 1000; 
-      clock[0] = sec + seconds;  //Add overflow of seconds + current seconds 
+      msg->seconds  = sec + seconds;  //Add overflow of seconds + current seconds 
       overflow = mili % 1000;   //left over miliseconds 
    } 
   else{ 
-     clock[0] = sec + seconds; 
-     clock[1] = mili; 
+     msg->seconds = sec + seconds; 
+     msg->milisec  = mili; 
    }  
      
-   printf("Clock has been updated to %d:%d\n",clock[0],clock[1]); 
+   printf("Clock has been updated to %d:%d\n",msg->seconds,msg->milisec); 
 
 } 
 
 void clean (int sig){ 
     printf("Removing shared memory"); 
     int i;
-    shmdt(clock);
-     shmdt(shmMsg);
       if((shmctl(shmid,IPC_RMID,NULL))== -1)
        perror("Error deleting memory");
 
-	for(i = 0; i < processNum; i++){
+      /*	for(i = 0; i < processNum; i++){
 		kill(processIds[i], SIGKILL);
-	}
+	}*/
 	exit(1);
 } 
+//Signal handler to catch Ctrl C 
+void  INThandler(int sig){
+  printf("Removing shared memory");
+   deleteMemory(); 
 
+    signal(sig, SIG_IGN);
+          exit(0);
+ }              
 
+//Semlock 
+void semLock(int semSetId){ 
+struct sembuf sem_op; //Semaphore structure
+//Wait on the semaphore unless value is non-negative 
+sem_op.sem_num = 0; 
+sem_op.sem_op = -1;  
+sem_op.sem_flg = 0; 
+semop(semSetId, &sem_op, 1); 
+} 
+
+//unlocks the semaphore 
+void semUnlock(int semSetId){ 
+struct sembuf sem_op; //Structure for semaphore 
+
+//Semaphore signal which increases value by one. 
+sem_op.sem_num = 0; 
+sem_op.sem_op - 1; 
+sem_op.sem_flg = 0; 
+semop(semSetId, &sem_op, 1); 
+} 
 
    
    /* shmdt(secptr);
@@ -172,8 +223,10 @@ void clean (int sig){
 */
 
 
-/*void printlog (char *filename, struct message* shmMsg, int *clock){
+void printlog (char *filename, struct message *msg){
    FILE *fpointer = fopen(filename, "w");
-   fprintf(fpointer, "OSS: %d is terminating at my time %d.%d because it reached %d.%d in user.\n",shmMsg[0].userPid, clock[0], clock[1], shmMsg[0].second, shmMsg[0].millisecond);
+   fprintf(fpointer, "OSS: %d is terminating at my time %d.%d because it reached %d.%d in user.\n",msg->userPid, msg->seconds,msg->milisec,msg->userSec,msg->userMili); 
+   //Free up shared memory message 
+   msg->shmsg[0] = 0; 
 }
-*/
+
